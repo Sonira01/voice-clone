@@ -81,3 +81,5 @@ Desktop.ini
 # Ignore model and data folders
 models/
 data/
+# Do not ignore the vits folder itself!
+!vits/
