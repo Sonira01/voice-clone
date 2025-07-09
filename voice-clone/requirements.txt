@@ -1,0 +1,8 @@
+torch
+torchaudio
+librosa
+numpy
+pydub
+phonemizer
+matplotlib
+gradio

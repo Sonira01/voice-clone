@@ -1,0 +1,30 @@
+# VITS Automated Setup Instructions
+
+1. All core VITS files and folders will be copied from the vits/ folder to voice-clone/.
+2. All imports will be fixed to use only local paths (no vits. references).
+3. You will need to build the Cython extension in monotonic_align/.
+4. All dependencies will be checked/installed.
+5. You will be able to start training with your dataset.
+
+---
+
+## Copied Files/Folders:
+- models.py
+- modules.py
+- commons.py
+- attentions.py
+- utils.py
+- losses.py
+- mel_processing.py
+- data_utils.py
+- transforms.py
+- monotonic_align/
+- text/
+- train.py
+- preprocess.py (if needed)
+- requirements.txt
+
+## Next Steps:
+- Build Cython: cd voice-clone/monotonic_align && python setup.py build_ext --inplace
+- Install requirements: pip install -r voice-clone/requirements.txt
+- Run training: python train.py --config configs/config.json
