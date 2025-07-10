@@ -1,0 +1,39 @@
+{
+  "train": {
+    "log_interval": 1,
+    "epochs": 100,
+    "learning_rate": 2e-4,
+    "segment_size": 8192
+  },
+  "data": {
+    "text_cleaners": ["english_cleaners"],
+    "add_blank": true,
+    "sampling_rate": 22050,
+    "filter_length": 1024,
+    "hop_length": 256,
+    "win_length": 1024,
+    "training_files": "filelists/train.txt",
+    "n_speakers": 1
+  },
+  "model": {
+    "spec_channels": 80,
+    "inter_channels": 192,
+    "hidden_channels": 192,
+    "filter_channels": 768,
+    "n_heads": 2,
+    "n_layers": 6,
+    "kernel_size": 3,
+    "p_dropout": 0.1,
+    "resblock": "1",
+    "resblock_kernel_sizes": [3, 7, 11],
+    "resblock_dilation_sizes": [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+    "upsample_rates": [8, 8, 2, 2],
+    "upsample_initial_channel": 512,
+    "upsample_kernel_sizes": [16, 16, 4, 4],
+    "n_speakers": 1,
+    "gin_channels": 256,
+    "use_sdp": true
+  },
+  "n_vocab": 256,
+  "symbols": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? "
+}

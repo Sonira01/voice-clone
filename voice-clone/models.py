@@ -1,46 +1,63 @@
 # voice-clone/models.py
 
 import torch
+import torch.nn as nn
 import json
-import os
+import torch.nn.functional as F
 
-
-class SynthesizerTrn(torch.nn.Module):
-    def __init__(self, n_vocab, spec_channels, segment_size, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates, upsample_initial_channel, upsample_kernel_sizes, n_speakers=0, gin_channels=0, use_sdp=True):
+class SynthesizerTrn(nn.Module):
+    def __init__(
+        self,
+        n_vocab,
+        spec_channels,
+        segment_size,
+        inter_channels,
+        hidden_channels,
+        filter_channels,
+        n_heads,
+        n_layers,
+        kernel_size,
+        p_dropout,
+        resblock,
+        resblock_kernel_sizes,
+        resblock_dilation_sizes,
+        upsample_rates,
+        upsample_initial_channel,
+        upsample_kernel_sizes,
+        n_speakers=0,
+        gin_channels=0,
+        use_sdp=True
+    ):
         super().__init__()
-        # Store parameters for debugging
-        self.n_vocab = n_vocab
         self.spec_channels = spec_channels
-        self.segment_size = segment_size
-        self.inter_channels = inter_channels
-        self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
-        self.n_heads = n_heads
-        self.n_layers = n_layers
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
-        self.resblock = resblock
-        self.resblock_kernel_sizes = resblock_kernel_sizes
-        self.resblock_dilation_sizes = resblock_dilation_sizes
-        self.upsample_rates = upsample_rates
-        self.upsample_initial_channel = upsample_initial_channel
-        self.upsample_kernel_sizes = upsample_kernel_sizes
-        self.n_speakers = n_speakers
-        self.gin_channels = gin_channels
-        self.use_sdp = use_sdp
-        # ...add actual model layers here...
+        self.dummy = nn.Linear(10, 2560)  # arbitrary shape for placeholder logic
 
-    def forward(self, *args, **kwargs):
-        # ...implement forward pass...
-        pass
+    def forward(self, text, text_lengths, spec, spec_lengths, wav, wav_lengths):
+        B, C, T = spec.shape
+        flat_output_size = C * T
+
+        dummy_input = torch.zeros(B, 10, device=spec.device)
+        dummy_out = self.dummy(dummy_input)
+
+        dummy_out = F.interpolate(
+            dummy_out.unsqueeze(1), size=flat_output_size,
+            mode='linear', align_corners=False
+        ).squeeze(1)
+
+        return dummy_out.view(B, C, T), None, None, None, None, None
+
+    @torch.no_grad()
+    def infer(self, text, text_lengths, sid=None, g=None, noise_scale=0.667, noise_scale_w=0.8, length_scale=1.0):
+        B = text.shape[0]
+        T = int(22050 * 2.5)  # simulate 2.5 seconds of audio at 22kHz
+        audio = torch.randn(B, 1, T).to(text.device)
+        return audio, None, None, None
 
 
 def load_model(config_path, checkpoint_path, device='cpu'):
-    # Load config
     with open(config_path, 'r') as f:
         hps = json.load(f)
 
-    # Init model
     model = SynthesizerTrn(
         n_vocab=hps["n_vocab"],
         spec_channels=hps["model"]["spec_channels"],
@@ -63,7 +80,6 @@ def load_model(config_path, checkpoint_path, device='cpu'):
         use_sdp=hps["model"].get("use_sdp", True)
     ).to(device)
 
-    # Load weights
     state_dict = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state_dict['model'], strict=False)
     model.eval()

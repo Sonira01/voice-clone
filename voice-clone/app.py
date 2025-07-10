@@ -2,54 +2,98 @@ import streamlit as st
 import torch
 import numpy as np
 import soundfile as sf
+import io
 import os
-
-from .models import SynthesizerTrn
+from resemblyzer import VoiceEncoder, preprocess_wav
+from models import SynthesizerTrn
 import utils
 from text import text_to_sequence
 
-CONFIG_PATH = "configs/ljs_base.json"  # or your config
-CHECKPOINT_PATH = "models/my_voice_clone.pth"  # your trained model
-DEVICE = "cpu"  # or "cuda" if available
+# ───── Config ─────
+CONFIG_PATH = "configs/ljs_base.json"
+CHECKPOINT_PATH = "fine_tuned.pth"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# ───── Load Model ─────
 @st.cache_resource
 def load_model():
     hps = utils.get_hparams_from_file(CONFIG_PATH)
-    net_g = SynthesizerTrn(
-        len(hps.symbols),
-        hps.data.filter_length // 2 + 1,
-        hps.train.segment_size // hps.data.hop_length,
-        n_speakers=getattr(hps.data, "n_speakers", 0),
-        **hps.model
+    if isinstance(hps.symbols, str):
+        hps.symbols = list(hps.symbols)
+
+    model = SynthesizerTrn(
+        n_vocab=len(hps.symbols),
+        spec_channels=hps.model.spec_channels,
+        segment_size=hps.model.segment_size or 8192,
+        inter_channels=hps.model.inter_channels,
+        hidden_channels=hps.model.hidden_channels,
+        filter_channels=hps.model.filter_channels,
+        n_heads=hps.model.n_heads,
+        n_layers=hps.model.n_layers,
+        kernel_size=hps.model.kernel_size,
+        p_dropout=hps.model.p_dropout,
+        resblock=hps.model.resblock,
+        resblock_kernel_sizes=hps.model.resblock_kernel_sizes,
+        resblock_dilation_sizes=hps.model.resblock_dilation_sizes,
+        upsample_rates=hps.model.upsample_rates,
+        upsample_initial_channel=hps.model.upsample_initial_channel,
+        upsample_kernel_sizes=hps.model.upsample_kernel_sizes,
+        n_speakers=hps.model.n_speakers,
+        gin_channels=hps.model.gin_channels,
+        use_sdp=getattr(hps.model, "use_sdp", True)
     ).to(DEVICE)
-    _ = net_g.eval()
-    utils.load_checkpoint(CHECKPOINT_PATH, net_g, None)
-    return net_g, hps
 
-net_g, hps = load_model()
+    ckpt = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
+    model.load_state_dict(ckpt["model"], strict=False)
+    model.eval()
+    return model, hps
 
-st.title("Voice Cloning Demo (VITS)")
+# ───── UI ─────
+st.set_page_config(page_title="Voice Cloner", page_icon="🎧")
+st.title("🎙️ Voice Cloning from Browser Recording")
+st.markdown("1. Upload your voice\n2. Type text\n3. Click synthesize!")
 
-text = st.text_area("Enter text to synthesize:", "Hello, this is a cloned voice using VITS!")
+text = st.text_area("Enter text to synthesize", "This is my cloned voice speaking.")
+uploaded_audio = st.file_uploader("🎙️ Upload your voice sample (.wav)", type=["wav"])
 
-sid = None
-if getattr(hps.data, "n_speakers", 0) > 1:
-    sid = st.number_input("Speaker ID (integer)", min_value=0, max_value=hps.data.n_speakers-1, value=0)
+if uploaded_audio is not None:
+    # Save uploaded file temporarily for Resemblyzer
+    temp_wav_path = "temp_uploaded.wav"
+    with open(temp_wav_path, "wb") as f:
+        f.write(uploaded_audio.read())
 
-if st.button("Synthesize"):
-    with st.spinner("Synthesizing..."):
-        text_norm = text_to_sequence(text, hps.data.text_cleaners)
-        if getattr(hps.data, "add_blank", False):
-            import commons
-            text_norm = commons.intersperse(text_norm, 0)
-        text_tensor = torch.LongTensor(text_norm).unsqueeze(0).to(DEVICE)
-        text_lengths = torch.LongTensor([text_tensor.size(1)]).to(DEVICE)
-        with torch.no_grad():
-            if sid is not None:
-                sid_tensor = torch.LongTensor([sid]).to(DEVICE)
-                audio = net_g.infer(text_tensor, text_lengths, sid=sid_tensor, noise_scale=0.667, noise_scale_w=0.8, length_scale=1)[0][0,0].cpu().numpy()
-            else:
-                audio = net_g.infer(text_tensor, text_lengths, noise_scale=0.667, noise_scale_w=0.8, length_scale=1)[0][0,0].cpu().numpy()
-        sf.write("output.wav", audio, hps.data.sampling_rate)
-        st.audio("output.wav", format="audio/wav")
-        st.success("Done!")
+    st.audio(temp_wav_path)
+
+    model, hps = load_model()
+
+    if st.button("🔊 Synthesize Voice"):
+        with st.spinner("Synthesizing..."):
+            # Preprocess voice using resemblyzer (automatically handles resampling and volume)
+            encoder = VoiceEncoder()
+            wav_preprocessed = preprocess_wav(temp_wav_path)
+            embed = encoder.embed_utterance(wav_preprocessed)
+            g_tensor = torch.FloatTensor(embed).unsqueeze(0).to(DEVICE) if hps.model.gin_channels > 0 else None
+
+            # Convert text to tensor
+            text_seq = text_to_sequence(text, hps.data.text_cleaners)
+            if getattr(hps.data, "add_blank", False):
+                import commons
+                text_seq = commons.intersperse(text_seq, 0)
+            text_tensor = torch.LongTensor(text_seq).unsqueeze(0).to(DEVICE)
+            text_lengths = torch.LongTensor([text_tensor.size(1)]).to(DEVICE)
+
+            with torch.no_grad():
+                audio = model.infer(
+                    text_tensor, text_lengths, sid=None,
+                    noise_scale=0.667, noise_scale_w=0.8, length_scale=1.0,
+                    g=g_tensor
+                )[0][0, 0].cpu().numpy()
+
+            output_path = "cloned_output.wav"
+            sf.write(output_path, audio, hps.data.sampling_rate)
+            st.audio(output_path)
+
+            with open(output_path, "rb") as f:
+                st.download_button("⬇️ Download Cloned Voice", f, file_name="cloned_voice.wav", mime="audio/wav")
+
+            st.success("✅ Voice cloned successfully!")
