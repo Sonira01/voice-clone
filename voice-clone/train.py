@@ -77,7 +77,6 @@ def main():
             if i % hps.train.log_interval == 0:
                 print(f"[✅] Epoch {epoch}, Step {i}, Loss: {loss.item():.4f}")
 
-    # ✅ Save only once after all epochs
     torch.save({'model': model.state_dict()}, "fine_tuned.pth")
     print("✅ Final model saved as fine_tuned.pth")
 
