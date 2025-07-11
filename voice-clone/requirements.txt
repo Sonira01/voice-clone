@@ -7,3 +7,4 @@ phonemizer
 matplotlib
 # gradio
 resemblyzer
+pyttsx3
